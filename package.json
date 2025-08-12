@@ -1,0 +1,22 @@
+{
+  "name": "mcap-reducer",
+  "version": "1.0.0",
+  "description": "Script to reduce frequency of messages in an MCAP file by topic",
+  "main": "index.ts",
+  "type": "commonjs",
+  "scripts": {
+    "reduce": "ts-node reduce.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@lichtblick/wasm-zstd": "^1.0.0",
+    "@mcap/core": "^2.1.6",
+    "@mcap/nodejs": "^1.0.2",
+    "@mcap/support": "^1.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2",
+    "@types/node": "^22.13.10"
+  }
+}
