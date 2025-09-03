@@ -10,21 +10,31 @@ import path from "path";
 const maxFrequency = 50;
 
 // Read the input file from the command line argument
-const inputFiles = process.argv.slice(2);
+const inputFiles = process.argv.slice(2).filter((arg) => arg.endsWith(".mcap"));
 
-if (inputFiles.length !== 1) {
-  console.error("Usage: npm run reduce <input-file>");
+if (inputFiles.length === 0) {
+  console.error(
+    "Usage: npm run reduce <input-file1.mcap> [<input-file2.mcap> ...]"
+  );
   process.exit(1);
 }
 
-if (!inputFiles[0].endsWith(".mcap")) {
-  console.error("Input file must be an MCAP file with .mcap extension");
-  process.exit(1);
+reduceMcaps(inputFiles);
+
+async function reduceMcaps(inputFiles: string[]) {
+  for (const inputFile of inputFiles) {
+    try {
+      await reduceFrequency(inputFile);
+    } catch (error) {
+      console.error(`Error reducing ${inputFile}:`, error);
+    }
+  }
 }
 
-reduceFrequency(inputFiles[0]).catch(console.error);
+async function reduceFrequency(inputFile: string) {
+  console.log(`Reducing ${inputFile}...`);
 
-async function reduceFrequency(inputFile) {
+  // Initialize reader
   const inputStream = await fs.open(inputFile, "r");
   const reader = await McapIndexedReader.Initialize({
     readable: new FileHandleReadable(inputStream),
@@ -46,7 +56,7 @@ async function reduceFrequency(inputFile) {
     }),
   });
 
-  await writer.start({ library: "json", profile: "mcap-point-cloud" });
+  await writer.start({ library: "mcap-reduce", profile: "reducer" });
 
   const schemaMap = new Map<number, number>();
   const channelMap = new Map<number, number>();
