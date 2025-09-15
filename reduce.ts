@@ -6,15 +6,24 @@ import zstd from "@lichtblick/wasm-zstd";
 import path from "path";
 
 // Maximum frequency of messages to keep
-// If a topic has a frequency greater than this, it will be reduced in half
-const maxFrequency = 50;
+// If a topic has a frequency greater than this, it will be reduced
+let maxFrequency = 50;
 
 // Read the input file from the command line argument
 const inputFiles = process.argv.slice(2).filter((arg) => arg.endsWith(".mcap"));
 
+const frequencyFlag = process.argv.slice(2).filter((arg) => arg.startsWith("--messageFrequency"));
+if (frequencyFlag.length > 0) {
+  const frequencyWanted = parseInt(frequencyFlag[0].split("=").pop());
+  if(!isNaN(frequencyWanted)) {
+    maxFrequency = frequencyWanted;
+  }
+}
+
+
 if (inputFiles.length === 0) {
   console.error(
-    "Usage: npm run reduce <input-file1.mcap> [<input-file2.mcap> ...]"
+    "Usage: npm run reduce <input-file1.mcap> [<input-file2.mcap> ...] [--messageFrequency=<freq>]"
   );
   process.exit(1);
 }
@@ -41,8 +50,6 @@ async function reduceFrequency(inputFile: string) {
     decompressHandlers: await loadDecompressHandlers(),
   });
 
-  const nonFrequentTopics: string[] = [];
-
   const outputFile = path.join(
     path.dirname(inputFile),
     path.basename(inputFile).replace(".mcap", "_reduced.mcap")
@@ -60,9 +67,8 @@ async function reduceFrequency(inputFile: string) {
 
   const schemaMap = new Map<number, number>();
   const channelMap = new Map<number, number>();
-  const channelTopicMap = new Map<number, string>();
-
-  const topicsWriten = {};
+  const channelKeepRate = new Map<number, number>();
+  const channelMessageCounter = new Map<number, number>();
 
   // Copy schemas
   for (const schema of reader.schemasById.values()) {
@@ -72,43 +78,49 @@ async function reduceFrequency(inputFile: string) {
 
   const start = reader.statistics.messageStartTime;
   const end = reader.statistics.messageEndTime;
+  const durationSeconds = Number(end - start) / 1e9;
 
-  // Copy channels
+  // Copy channels and calculate keep rates
   for (const channel of reader.channelsById.values()) {
     const countMessages = Number(
-      reader.statistics.channelMessageCounts.get(channel.id)
+      reader.statistics.channelMessageCounts.get(channel.id) || 0
     );
 
-    const frequency = Math.floor((countMessages / Number(end - start)) * 1e9);
+    const frequency = countMessages / durationSeconds;
 
-    // Only keep channels / topics with frequency less than or equal to maxFrequency
-    if (frequency <= maxFrequency) {
-      nonFrequentTopics.push(channel.topic);
-    }
+    let keepRate = 1;
+    if (frequency > maxFrequency) {
+      keepRate = Math.ceil(frequency / maxFrequency);
+    } 
 
     const newSchemaId = schemaMap.get(channel.schemaId) || 0;
     const newChannelId = await writer.registerChannel({
       ...channel,
       schemaId: newSchemaId,
     });
+    
     channelMap.set(channel.id, newChannelId);
-    channelTopicMap.set(channel.id, channel.topic);
+    channelKeepRate.set(channel.id, keepRate);
+    channelMessageCounter.set(channel.id, 0);
   }
 
-  // Copy messages
+  let totalMessagesWritten = 0;
+  
   for await (const record of reader.readMessages()) {
     if (record.type !== "Message") continue;
+    
     const newChannelId = channelMap.get(record.channelId);
     if (newChannelId !== undefined) {
-      // Always write if not frequent topic
-      if (nonFrequentTopics.includes(channelTopicMap.get(record.channelId))) {
+      const keepRate = channelKeepRate.get(record.channelId) || 1;
+      const messageCount = channelMessageCounter.get(record.channelId) || 0;
+      
+      // Keep message if it's the Nth message (where N = keepRate)
+      if (messageCount % keepRate === 0) {
         await writer.addMessage({ ...record, channelId: newChannelId });
-      } else if (!topicsWriten[newChannelId]) {
-        topicsWriten[newChannelId] = true;
-        await writer.addMessage({ ...record, channelId: newChannelId });
-      } else {
-        topicsWriten[newChannelId] = false;
+        totalMessagesWritten++;
       }
+      
+      channelMessageCounter.set(record.channelId, messageCount + 1);
     }
   }
 
@@ -116,6 +128,7 @@ async function reduceFrequency(inputFile: string) {
   await writer.end();
   await outputStream.close();
   await inputStream.close();
+
 
   console.log(`Reducing ${outputFile} complete.`);
 }
