@@ -46,6 +46,15 @@ npm run reduce /path/to/mcaps/*.mcap
 ```
 *Note: The shell will expand `*.mcap` to match all `.mcap` files in the directory*
 
+### Specifying Message Frequency
+If needed you can control the maximum frequency of messages written to the reduced file using the `--messageFrequency=` flag. Provide the desired frequency (in Hz) as the value:
+
+```bash
+npm run reduce -- --messageFrequency=30 /path/to/your/file.mcap
+```
+
+*Note: The resulting frequency may not match the exact number provided, since it depends on the original message rates and how evenly messages are spaced*
+
 The reduced files will be created in the same directory as each input file with the suffix `_reduced.mcap`. If a file with the same name already exists, it will create numbered versions like `_reduced (2).mcap`, `_reduced (3).mcap`, etc.
 
 For example:
